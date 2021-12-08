@@ -44,9 +44,41 @@ def mine():
     }
     return jsonify(response), 200
 
+@app.route('/minepos', methods=['GET'])
+def minepos():
+    # We run the proof of work algorithm to get the next proof...
+    last_block = blockchain.last_block
+    proof = blockchain.proof_of_stake(last_block)
+    
+    # We must receive a reward for finding the proof.
+    # The sender is "0" to signify that this node has mined a new coin.
+    sender = '0'
+    amount = MINING_REWARD
+    blockchain.new_transaction(
+        sender=sender,
+        recipient=node_uuid,
+        amount=amount,
+    )
+    wallets.wallet_update(node_uuid, amount)
+
+    # Forge the new Block by adding it to the chain
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(proof, previous_hash)
+
+    response = {
+        'message': "New Block Forged",
+        'index': block['index'],
+        'transactions': block['transactions'],
+        'proof': block['proof'],
+        'previous_hash': block['previous_hash'],
+        'valid':True
+    }
+    return jsonify(response), 200
+
+
 @app.route('/wallets/', methods=['GET'], defaults={'uuid': None}, strict_slashes=False)
 @app.route('/wallets/<uuid>', methods=['GET'], strict_slashes=False)
-def route_wallets_get(uuid):
+def route_wallets_get(uuid):    
     response = wallets.wallets_get(uuid=uuid)
     return jsonify(response)
 
@@ -135,6 +167,23 @@ def consensus():
 
     return jsonify(response), 200
 
+@app.route('/nodes/resolvepos', methods=['GET'])
+def consensus_pos():
+    replaced = blockchain.resolve_conflicts_pos()
+
+    if replaced:
+        response = {
+            'message': 'Our chain was replaced',
+            'new_chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': 'Our chain is authoritative',
+            'chain': blockchain.chain
+        }
+
+    return jsonify(response), 200
+
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
@@ -145,6 +194,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     port = args.port
     # Generate a globally unique address for this node
-    node_uuid = args.uuid if args.uuid is not None else str(uuid4().hex)
-
+    node_uuid = args.uuid if args.uuid is not None else 'N'+str(1 + (port%5000))
+    print("Node uuid = ", node_uuid)
     app.run(host='0.0.0.0', port=port)

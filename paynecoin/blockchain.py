@@ -3,7 +3,7 @@ import json
 from time import time
 from urllib.parse import urlparse
 import requests
-
+import random
 
 class Wallets:
     def __init__(self):
@@ -19,7 +19,7 @@ class Wallets:
             return self.wallets
 
     def wallet_create(self, uuid):
-        transactions = []
+        transactions = [50]
         wallet = {
             'transactions': transactions,
             'balance': sum(transactions)
@@ -62,7 +62,7 @@ class Blockchain:
             raise ValueError('Invalid URL')
 
 
-    def valid_chain(self, chain):
+    def valid_chain(self, chain, mining_difficulty=5):
         """
         Determine if a given blockchain is valid
         :param chain: A blockchain
@@ -83,7 +83,9 @@ class Blockchain:
                 return False
 
             # Check that the Proof of Work is correct
-            if not self.valid_proof(last_block['proof'], block['proof'], last_block_hash):
+            if not self.valid_proof(last_block['proof'], block['proof'], last_block_hash, 
+                mining_difficulty=mining_difficulty):                
+                print("INCORRECT PROOF OF WORK")
                 return False
 
             last_block = block
@@ -114,6 +116,39 @@ class Blockchain:
 
                 # Check if the length is longer and the chain is valid
                 if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        # Replace our chain if we discovered a new, valid chain longer than ours
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
+
+    def resolve_conflicts_pos(self):
+        """
+        This is our consensus algorithm, it resolves conflicts
+        by replacing our chain with the longest one in the network.
+        :return: True if our chain was replaced, False if not
+        """
+
+        neighbors = self.nodes
+        new_chain = None
+
+        # We're only looking for chains longer than ours
+        max_length = len(self.chain)
+
+        # Grab and verify the chains from all the nodes in our network
+        for node in neighbors:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                # Check if the length is longer and the chain is valid
+                if length > max_length and self.valid_chain(chain, mining_difficulty=0):
                     max_length = length
                     new_chain = chain
 
@@ -178,6 +213,13 @@ class Blockchain:
         block_string = json.dumps(block, sort_keys=True).encode()
         return sha256(block_string).hexdigest()
 
+    def proof_of_stake(self, last_block):
+        """
+        Simple Proof of Stake (PoW) algorithm:
+        """
+        
+        return 1
+
     def proof_of_work(self, last_block):
         """
         Simple Proof of Work (PoW) algorithm:
@@ -198,7 +240,7 @@ class Blockchain:
         return proof
 
     @staticmethod
-    def valid_proof(last_proof, proof, last_hash):
+    def valid_proof(last_proof, proof, last_hash, mining_difficulty=5):
         """
         Validates the Proof
         :param last_proof: <int> Previous Proof
@@ -206,8 +248,7 @@ class Blockchain:
         :param last_hash: <str> The hash of the Previous Block
         :return: <bool> True if correct, False if not.
         """
-
         guess = f'{last_proof}{proof}{last_hash}'.encode()
         guess_hash = sha256(guess).hexdigest()
-        return guess_hash[:5] == "00000"
+        return guess_hash[:mining_difficulty] == "0"*mining_difficulty
         
